@@ -1,0 +1,2 @@
+/home/lroyd/github/ThrPool/build/CMakeFiles/sample.dir
+/home/lroyd/github/ThrPool/build/CMakeFiles/thrpool.dir

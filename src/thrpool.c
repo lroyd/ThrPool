@@ -3,23 +3,18 @@
 	> Author: lroyd
 	> Mail: htzhangxmu@163.com
 	> Created Time: 
- ************************************************************************/
+*************************************************************************/
 #include "thrpool.h"
 
 
 /************************************************************************
 * 			Logout Setting
-* **********************************************************************/
+************************************************************************/
 #ifdef THRPOOL_DBG	
 	#define 	TAG_THR			"THRPOOL"
 	#if defined(ANDROID) || defined(__ANDROID__)
 		/* android */
-		#include <jni.h>
-		#include <android/log.h>
 
-		#define		THR_LOGI(format, ...)  	__android_log_print(ANDROID_LOG_INFO,  TAG_THR, format, ##__VA_ARGS__);	
-		#define		THR_LOGD(format, ...)  	__android_log_print(ANDROID_LOG_DEBUG, TAG_THR, format, ##__VA_ARGS__);	
-		#define		THR_LOGE(format, ...)  	__android_log_print(ANDROID_LOG_ERROR, TAG_THR, format, ##__VA_ARGS__);	
 	#else
 		/* linux */
 		#include"log_file.h"
@@ -436,7 +431,7 @@ EXIT:
 /************************************************************************
 * Name: 		ThreadTskSetEvent
 * Descriptions: 
-* Param:		
+* Param:		1.int:thread id     2.int:
 * Return:
 * **********************************************************************/
 tTHR_STATUS ThreadTskSetEvent(int _pThrId, int _pEvent, int _pCond, int _pflag)

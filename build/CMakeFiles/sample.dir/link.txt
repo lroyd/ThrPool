@@ -1,0 +1,1 @@
+/usr/bin/cc  -g -lpthread -lm -fPIC    CMakeFiles/sample.dir/test/test.c.o  -o ../bin/sample -rdynamic ../bin/libthrpool.so -Wl,-rpath,/home/lroyd/github/ThrPool/bin 

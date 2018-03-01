@@ -1,0 +1,1 @@
+/usr/bin/cc  -fPIC -g -lpthread -lm -fPIC   -shared -Wl,-soname,libthrpool.so -o ../bin/libthrpool.so CMakeFiles/thrpool.dir/src/thrpool.c.o CMakeFiles/thrpool.dir/utils/log_file.c.o 
