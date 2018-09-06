@@ -4,37 +4,13 @@
 	> Mail: htzhangxmu@163.com
 	> Created Time: 
 *************************************************************************/
-#include <stdarg.h>
-#include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <sys/types.h>
-#include <pthread.h>
-
 #include "queue.h" 
 #include "thrpool.h" 
-
-/************************************************************************
-* 			Logout Setting
-************************************************************************/
-
-
-
 
 
 /************************************************************************
 * 			Macro Common Definition
 * **********************************************************************/
-typedef enum
-{
-	THR_MODE_LAZY = 0,	//不启动线程清理
-	THR_MODE_BROOM,		//启动线程清理
-	THR_MODE_BUTT,
-}THR_STEP_MODE;
-
-
 typedef enum
 {
 	LH_THREAD_TTPYE_POOL = 0,			//线程池
@@ -53,17 +29,7 @@ typedef enum
 #define THR_FREE_TASK			((void *)(-1))			//没有创建线程，没有任务
 #define THR_IDL_TASK			((void *)(0))			//已经创建好的线程，没有任务
 
-#define TPId 			    	pthread_t
-#define TPLock 			    	pthread_mutex_t
-#define InitTPLock(lck)			pthread_mutex_init(&(lck), NULL)
-#define LockTPLock(lck)			pthread_mutex_lock(&(lck))
-#define TryLockTPLock(lck)		pthread_mutex_trylock(&(lck))
-#define UnLockTPLock(lck)	    pthread_mutex_unlock(&(lck))
 
-#define TPCond 					pthread_cond_t
-#define InitTPCond(cnd)			pthread_cond_init(&(cnd), NULL)
-#define WaitTPCond(cnd, lck)	pthread_cond_wait(&(cnd), &(lck))
-#define SignalTPCond(cnd)		pthread_cond_signal(&(cnd))
 /************************************************************************
 * 			Struct Common Definition
 * **********************************************************************/
@@ -160,39 +126,12 @@ static int	g_iEvent = 0;
 /************************************************************************
 * 			static function list
 * **********************************************************************/
-static void XSleep(int nSec, int nUSec);
-static unsigned long long CTimerSec(void);
 static void *thread_pool_auto_clean(void *_pArg);
 static void *local_monitor(void *_pArg);
 static int add_table_item(int _iTTye, void *_pEnt);
 static int delete_table_item(int _iTTye, int _iThrID);
 static void *get_table_item(int _iTTye, int _iThrID);
-/************************************************************************
-* Name: 
-* Descriptions:
-* Param:		
-* Return:
-* **********************************************************************/
-static void XSleep(int nSec, int nUSec)
-{
-	struct timeval tv;
-	tv.tv_sec = nSec;
-	tv.tv_usec = nUSec;
-	select(0, NULL, NULL, NULL, &tv);
-}
 
-static unsigned long long CTimerSec(void) 
-{
-    unsigned long long x=0;
-
-	// use system call to read time clock for other archs
-	struct timeval t;
-	gettimeofday(&t, 0);
-    x = t.tv_sec;
-
-   return x;
-   //TODO: add machine instrcutions for different archs
-}
 /************************************************************************
 * Name: 		thread_pool_auto_clean
 * Descriptions:	自动清理用户退出的线程，未开启此项的话，只能调用UnInitThreadPool清理
@@ -228,7 +167,7 @@ static void *thread_pool_auto_clean(void *_pArg) //
 		UnLockTPLock(ptThrPool->m_tMutex);
 	}
 	
-	//printf("Start the clean up program\r\n");
+	LOGOUT(LOG_TRACE, "Start the clean up program for pool ID %d", ptThrPool->m_iThrPoolId);
 	
 	while(ptThrPool->m_iThrPoolState == THRPOOL_STATE_WAIT_CLOSE)
 	{
@@ -245,7 +184,7 @@ static void *thread_pool_auto_clean(void *_pArg) //
 			}
 			else
 			{
-				printf("thread sid = %d is live, force cancel...\r\n", ptThr->m_iTaskID);
+				LOGOUT(LOG_WARNING, "pool id[%d] -> thread id [%d] is live, force cancel...", ptThrPool->m_iThrPoolId, ptThr->m_iTaskID);
 				/* 发送信号强行退出 */
 				pthread_cancel(ptThr->m_tHnd);  //注意不是m_iTaskID
 			}
@@ -255,7 +194,7 @@ static void *thread_pool_auto_clean(void *_pArg) //
 		if (ptThrPool->m_iThrNum == iCnt)
 		{
 			/* 确保所有线程都退出了，发送信号给监管者销毁 */
-			//printf("Ready to clean up for thread pool id = [%d], name = [%s]\r\n", ptThrPool->m_iThrPoolId, ptThrPool->m_aucName);
+			LOGOUT(LOG_DEBUG, "pool id[%d], name [%s] all child threads have been withdrawn, ready to clean up for pool", ptThrPool->m_iThrPoolId, ptThrPool->m_aucName);
 			
 			T_MonitQueueMsg *pMsg = (T_MonitQueueMsg *)calloc(1, sizeof(T_MonitQueueMsg));    
 			pMsg->m_iCmd = 1;    
@@ -272,12 +211,12 @@ static void *thread_pool_auto_clean(void *_pArg) //
 		else
 		{
 			/* 还有未退出的线程实体,强行pthread_cancel()线程实体 */
-			printf("thread pool id = [%d] have no drop out of sub thread number size [%d], please wait... \r\n",ptThrPool->m_iThrPoolId, (ptThrPool->m_iThrNum - iCnt));
+			LOGOUT(LOG_WARNING, "pool id[%d] have no drop out of sub thread number size [%d], please wait... ",ptThrPool->m_iThrPoolId, (ptThrPool->m_iThrNum - iCnt));
 			XSleep(1,0);
 		}		
 	}
 
-	//printf("%s ThrPool Dispatch has Exit !!!!\r\n",__func__);
+	LOGOUT(LOG_TRACE, "thread_pool_auto_clean has Exit !!!!");
 	return NULL;
 }
 
@@ -300,7 +239,7 @@ static void *local_monitor(void *_pArg)
 		
 		for (pMsg = TAILQ_FIRST(&tQueueHead); pMsg; pMsg = TAILQ_NEXT(pMsg, _qEntry)) 
 		{    
-			//printf("get queue cmd = %d, value = %d\n", pMsg->m_iCmd, pMsg->m_iVal); 
+			LOGOUT(LOG_DEBUG, "monitor get queue cmd = %d, value(pool id) = %d", pMsg->m_iCmd, pMsg->m_iVal); 
 			TAILQ_REMOVE(&tQueueHead, pMsg, _qEntry);  
 			/* 目前只有删除 */
 			delete_table_item(LH_THREAD_TTPYE_POOL, pMsg->m_iVal);
@@ -309,18 +248,17 @@ static void *local_monitor(void *_pArg)
 		
 		if (TAILQ_EMPTY(&tQueueHead)) 
 		{    
-			//printf("the tail queue is empty now.\n");       
+			LOGOUT(LOG_TRACE, "monitor the tail queue is empty now");       
 		}
 	
 	}
 
 	g_iRunning = 0;
-	
-	
+	LOGOUT(LOG_TRACE, "monitor thread has Exit !!!!");       
 }
 
-
-int LH_ThrLibraryEnable(void)
+GH_DEF(int)
+LH_ThrLibraryEnable(void)
 {
 	int ret = 0;
 	InitTPLock(g_MLock);	
@@ -343,44 +281,41 @@ int LH_ThrLibraryEnable(void)
 	g_iRunning = 1;
 	if(pthread_create(&tTid, &g_iMonitAttr, local_monitor, NULL)!=0)
 	{
-		printf("清理线程失败,直接退出\r\n");
-		
-		
+		LOGOUT(LOG_ERROR, "pthread create local_monitor error");
 		pthread_attr_destroy(&g_iThrPoolCleanAttr); 
 		pthread_attr_destroy(&g_iUsrThrAttr); 
 		ret = 1;
 	}
 	pthread_attr_destroy(&g_iMonitAttr); 
 	pthread_detach(tTid);	
-	
+	LOGOUT(LOG_TRACE, "thread pool ENABLE has success ~~");  
 	return ret;
 }
 
-int LH_ThrLibraryDisable(void)
+GH_DEF(int)
+LH_ThrLibraryDisable(void)
 {
 	g_iRunning = 0;
 	
 	/* 属性销毁 */
 	pthread_attr_destroy(&g_iThrPoolCleanAttr); 
 	pthread_attr_destroy(&g_iUsrThrAttr); 	
+	
+	LOGOUT(LOG_TRACE, "thread pool DISABLE.. ~~");  
 }
 
 /************************************************************************
 * Name: 		
 * Descriptions:将新创建的主池加入到数组中，以便管理
 * Parameter:		
-* Return:     	
+* Return:     	-1:已满，0+ fd
 * **********************************************************************/
 static int add_table_item(int _iTTye, void *_pEnt)
 {
-	/* 判断类型合法 */
-	if (_iTTye >= LH_THREAD_TTPYE_BUTT || _pEnt == NULL )
-	{
-		printf("参数不合法\r\n");
-		return -1;
-	}	
-	T_ThreadPoolEntity *ptThrPool = (T_ThreadPoolEntity *)_pEnt;
 	int i, iRet = -1;
+	_ASSERT(_iTTye < LH_THREAD_TTPYE_BUTT && _pEnt);
+	
+	T_ThreadPoolEntity *ptThrPool = (T_ThreadPoolEntity *)_pEnt;
 	LockTPLock(g_MLock);
 	for(i=0; i< LH_THREAD_POOL_SIZE_MAX;i++)
 	{
@@ -390,7 +325,7 @@ static int add_table_item(int _iTTye, void *_pEnt)
 			g_tUserThrPool[i] = _pEnt;
 
 			ptThrPool->m_iThrPoolId = i; 
-			
+			LOGOUT(LOG_DEBUG, "add item, pool ID = [%d], address = %x",i, (unsigned int)(long)ptThrPool);
 			//ptThrPool->pUserHandle(ptThrPool->m_iThrPoolId, "malloc ok");
 			
 			iRet = ptThrPool->m_iThrPoolId;
@@ -403,14 +338,13 @@ static int add_table_item(int _iTTye, void *_pEnt)
 }
 
 static int delete_table_item(int _iTTye, int _iThrID)
-{
-	/* 判断类型合法 */
-	if (_iTTye >= LH_THREAD_TTPYE_BUTT )
-	{
-		printf("参数不合法\r\n");
-		return -1;
-	}	
+{	
 	int iRet = -1;
+	if (_iThrID <0 )
+	{
+		return 0;
+	}
+
 	T_ThreadPoolEntity *ptThrPool = NULL;
 	LockTPLock(g_MLock);
 	if (ptThrPool = (T_ThreadPoolEntity *)(g_tUserThrPool[_iThrID]))
@@ -418,7 +352,7 @@ static int delete_table_item(int _iTTye, int _iThrID)
 		if (ptThrPool->m_iThrPoolId == _iThrID)
 		{
 			/* 删除 */
-			//printf("free pool ID = %d, %x\r\n",_iThrID, (unsigned int)(long)g_tUserThrPool[_iThrID]);
+			LOGOUT(LOG_DEBUG, "delete item pool ID = %d, address = %x",_iThrID, (unsigned int)(long)g_tUserThrPool[_iThrID]);
 			g_tUserThrPool[_iThrID] = NULL;	
 			
 			/* 调用一次主池回掉 ,放在这里结构不好*/
@@ -433,12 +367,12 @@ static int delete_table_item(int _iTTye, int _iThrID)
 		}
 		else
 		{
-			printf("error id = %d\r\n", _iThrID);
+			LOGOUT(LOG_WARNING, "delete item, pool id = [%d] not expect",_iThrID);
 		}
 	}
 	else
 	{
-		printf("not found id = %d\r\n", _iThrID);
+		LOGOUT(LOG_WARNING, "delete item, not found pool id = [%d]",_iThrID);
 	}
 	UnLockTPLock(g_MLock);
 	
@@ -449,6 +383,12 @@ static int delete_table_item(int _iTTye, int _iThrID)
 static void *get_table_item(int _iTTye, int _iThrID)
 {
 	T_ThreadPoolEntity *ptThrPool = NULL;
+	if (_iThrID < 0)
+	{
+		LOGOUT(LOG_ERROR, "get item, pool id = [%d] is error",_iThrID);
+		return ptThrPool;
+	}
+
 	LockTPLock(g_MLock);
 	if (ptThrPool = (T_ThreadPoolEntity *)g_tUserThrPool[_iThrID])
 	{
@@ -468,24 +408,25 @@ static void *get_table_item(int _iTTye, int _iThrID)
 *				1.const char *:主池名字
 *				2.unsigned char：主池包含的子线程个数
 *				3.void (*_pHandle)(int, void *)：(目前只用在子线程清理上，也可以当钩子函数使用)
-* Return:		-1：失败/0+：主池ID
+*				4.int *：返回给用户的主池 Pool ID
+* Return:		0:成功
+*				GH_EINVAL：参数错误
+*				GH_ENOMEM：内存不够，malloc
+*				GH_EINVALIDOP：函数操作错误，pthread_create
+*				GH_EFULL：对象已满
 * **********************************************************************/
-int InitThreadPool(const char *_pName, unsigned char _ucThrNum, void (*_pHandle)(int, void *))
+GH_DEF(int)
+InitThreadPool(const char *_pName, unsigned char _ucThrNum, void (*_pHandle)(int, void *), int *_iPoolID)
 {
-	int iRet = -1,i;
+	int iRet = 0,i;
 	T_ThreadPoolEntity *ptThrPool = NULL;
 	TPId tTid;
 	/* 1.判断参数合法性 */
-	if (strlen(_pName) > THRPOOL_NAME_LEN_MAX || _ucThrNum > LH_THREAD_ENT_SIZE_MAX )
-	{
-		printf("参数不合法\r\n");
-		goto EXIT;
-	}
+	_ERROR_RETURN(strlen(_pName) <= THRPOOL_NAME_LEN_MAX && _ucThrNum <= LH_THREAD_ENT_SIZE_MAX, GH_EINVAL);
 	
 	/* 2.初始化私有池 */
 	ptThrPool = malloc(sizeof(T_ThreadPoolEntity)+ sizeof(LH_Thread) * _ucThrNum);
-	
-	//printf("malloc address %x \r\n",ptThrPool);
+	_ERROR_RETURN(ptThrPool, GH_ENOMEM);
 	
 	ptThrPool->pThrList = (LH_Thread *)(ptThrPool + THRPOOL_LIST_OFFSET);
 	ptThrPool->m_iActiveThrCnt = 0;
@@ -528,6 +469,7 @@ int InitThreadPool(const char *_pName, unsigned char _ucThrNum, void (*_pHandle)
 			
 			free(ptThrPool);
 			ptThrPool = NULL;
+			iRet = GH_EINVALIDOP;
 			goto EXIT;
 		}
 		
@@ -536,12 +478,12 @@ int InitThreadPool(const char *_pName, unsigned char _ucThrNum, void (*_pHandle)
 	}
 	
 	/* 将创建的主池加入监管线程 */
-	iRet = add_table_item(LH_THREAD_TTPYE_POOL, (void *)ptThrPool);
-	if (iRet < 0)
+	*_iPoolID = add_table_item(LH_THREAD_TTPYE_POOL, (void *)ptThrPool);
+	if (*_iPoolID < 0)
 	{
-		/* 加入失败 */
-		iRet = -1;
+		iRet = GH_EFULL;
 	}
+	//LOGOUT(LOG_DEBUG, "init thread pool ID = %d, malloc address = %x",*_iPoolID, (unsigned int)(long)ptThrPool);
 EXIT:
 	return iRet;
 }
@@ -550,33 +492,31 @@ EXIT:
 * Descriptions:	此函数返回不能说明成功销毁 [异步释放，有点慢]，此函数会延时强行清理子线程
 * Parameter:	
 *				1.int：要销毁的主池ID
-* Return:		
+* Return:		0:成功
+*				GH_EGONE：对象不存在
 * **********************************************************************/
-void UnInitThreadPool(int _iThrPoolID)
+GH_DEF(int)
+UnInitThreadPool(int _iThrPoolID)
 {
 	T_ThreadPoolEntity *ptThrPool = (T_ThreadPoolEntity *)get_table_item(LH_THREAD_TTPYE_POOL, _iThrPoolID);
-	
-	if (ptThrPool)
-	{
-		/* 1.先让子线程实体关闭 */
-		int i;
-		LH_Thread *ptThr = NULL;
-		ptThr = ptThrPool->pThrList;
-		for(i = 0; i < ptThrPool->m_iThrNum; i++, ptThr++)
-		{	
-			if(ptThr->m_iRunFlg)
-			{
-				ptThr->m_iRunFlg = 0;
-			}
+	_ERROR_RETURN(ptThrPool, GH_EGONE);
+
+	/* 1.先让子线程实体关闭 */
+	int i;
+	LH_Thread *ptThr = NULL;
+	ptThr = ptThrPool->pThrList;
+	for(i = 0; i < ptThrPool->m_iThrNum; i++, ptThr++)
+	{	
+		if(ptThr->m_iRunFlg)
+		{
+			ptThr->m_iRunFlg = 0;
 		}
-		
-		/* 2.再关闭清理线程 */
-		ptThrPool->m_iThrPoolState = THRPOOL_STATE_WAIT_CLOSE;
 	}
-	else
-	{
-		printf("unknown ID\r\n");
-	}
+	
+	/* 2.再关闭清理线程 */
+	ptThrPool->m_iThrPoolState = THRPOOL_STATE_WAIT_CLOSE;
+
+	return 0;
 }
 
 /************************************************************************
@@ -585,7 +525,8 @@ void UnInitThreadPool(int _iThrPoolID)
 * Parameter:		
 * Return:     	
 * **********************************************************************/
-void PrintInfoThreadPool(void)
+GH_DEF(int)
+PrintInfoThreadPool(void)
 {
 	int i;
 	printf("=====================================================================\r\n");
@@ -599,6 +540,7 @@ void PrintInfoThreadPool(void)
 		}		
 	}
 	printf("=====================================================================\r\n");
+	return 0;
 }
 
 /************************************************************************
@@ -626,7 +568,7 @@ static void clean_all_queue(LH_Thread *_ptThr)
 static void except_abort(void *_pArg)  
 {
 	LH_Thread *ptThr = (LH_Thread *)_pArg;
-    printf(".......except_abort thread id = %d\n",ptThr->m_iTaskID); 
+    LOGOUT(LOG_WARNING, "...except_abort thread id = %d",ptThr->m_iTaskID); 
 	/* 1.需要强行释放锁 */
 	UnLockTPLock(ptThr->m_tMux);
 	/* 2.需要强行释放下属队列 */
@@ -686,7 +628,7 @@ static void *inter_thread_task(void *_pArg)
 		/* Executing thread tasks */ 
 		ptThr->Task(ptThr->m_pArg);    
 		
-		//printf("attachment func has exit ~~");
+		LOGOUT(LOG_TRACE, "attachment func has exit ~~");
 		ptThr->m_iLastActive = CTimerSec();	//用户的逻辑退出后记录时间等待清理
 		//ptThr->m_pArg = NULL;
 		ptThr->Task = THR_IDL_TASK;	//After the thread exits, it automatically becomes idle, but it is not destroyed
@@ -694,7 +636,7 @@ static void *inter_thread_task(void *_pArg)
 	}
 
 EXIT:
-	printf("Thread State Recovery.. %d \r\n",ptThr->m_iTaskID);
+	LOGOUT(LOG_DEBUG, "thread id [%d] state recovery..",ptThr->m_iTaskID);
 	ptThr->Task = THR_FREE_TASK;  //准备释放线程所以是THR_FREE_TASK 而不是 THR_IDL_TASK
 	/* 释放下属队列 */
 	clean_all_queue(ptThr);
@@ -761,7 +703,7 @@ static int inter_create_thread(void *(*_Task)(void *), void *_pArg, void *_pUser
 				pthread_detach(*_ptThr);
 			}
 #endif
-			printf("thr pool is full.");  //Can not be created
+			LOGOUT(LOG_WARNING, "thread pool is full!!!!");  //Can not be created
 			goto EXIT;
 		}
 		else //Create a new thread and add a thread pool
@@ -796,7 +738,7 @@ static int inter_create_thread(void *(*_Task)(void *), void *_pArg, void *_pUser
 	ptThr->pMaster	= _ptPool;
 	ptThr->pCleanup	= _pUserClean;
 	//*_ptThr = -1;
-	//printf("new task add into pool thread id = %d , = %p",iThrId, ptThr->Task );
+	LOGOUT(LOG_TRACE, "new task add into pool thread id = %d , = %p",iThrId, ptThr->Task );
 	iRet = iThrId;	
 EXIT:	
 	UnLockTPLock(_ptPool->m_tMutex);
@@ -811,31 +753,24 @@ EXIT:
 *				2.void *(*_Task)(void *)：子线程函数
 *				3.void *：子线程运行参数
 *				4.void *_pUserClean(void *)：子线程清理函数
-* Return:	-1：失败/0+ 子线程id
+* Return:		0：成功
+				GH_EINVAL：参数错误
+				GH_EGONE：对象不存在
+				GH_EFULL：对象已满（子线程）
 * **********************************************************************/
-int StartThreadInPool(int _iThrPoolID, void *(*_Task)(void *), void *_pArg, void *_pUserClean(void *))
+GH_DEF(int)
+StartThreadInPool(int _iThrPoolID, void *(*_Task)(void *), void *_pArg, void *_pUserClean(void *), int *_iThreadID)
 {
+	_ERROR_RETURN(_Task, GH_EINVAL);
+	
 	T_ThreadPoolEntity *ptThrPool = (T_ThreadPoolEntity *)get_table_item(LH_THREAD_TTPYE_POOL, _iThrPoolID);
-	int iRet = -1;
-	//printf("0000000\r\n");
-	if (ptThrPool)
-	{
-		if (_Task)
-		{
-			//printf("111111111\r\n");
-			iRet = inter_create_thread(_Task, _pArg, _pUserClean, ptThrPool);
-		}
-		else
-		{
-			printf("task can not NULL\r\n");
-		}
-	}
-	else
-	{
-		printf("unknown pool ID\r\n");
-	}	
+	_ERROR_RETURN(ptThrPool, GH_EGONE);
+
+	int	iThreadID = inter_create_thread(_Task, _pArg, _pUserClean, ptThrPool);
+	_ERROR_RETURN(iThreadID >= 0, GH_EFULL);
+	*_iThreadID = iThreadID;
 EXIT:	
-	return iRet;
+	return 0;
 }
 
 /************************************************************************
@@ -844,25 +779,20 @@ EXIT:
 * Parameter:		
 *				1.int：主池ID
 *				2.int：子线程ID
-* Return:	
+* Return:		0：成功
+				GH_EGONE：对象不存在
 * **********************************************************************/
-int StopForceThreadInPool(int _iThrPoolID, int _iThrID)
+GH_DEF(int)
+StopForceThreadInPool(int _iThrPoolID, int _iThrID)
 {
 	T_ThreadPoolEntity *ptThrPool = (T_ThreadPoolEntity *)get_table_item(LH_THREAD_TTPYE_POOL, _iThrPoolID);
-	int iRet = -1;
-	if (ptThrPool)
-	{
-		LH_Thread *ptThr = NULL;
-		ptThr = ptThrPool->pThrList + _iThrID;
-		pthread_cancel(ptThr->m_tHnd);
-		iRet = 0;
-	}
-	else
-	{
-		printf("unknown pool ID\r\n");
-	}	
+	_ERROR_RETURN(ptThrPool, GH_EGONE);
 
-	return iRet;
+	LH_Thread *ptThr = NULL;
+	ptThr = ptThrPool->pThrList + _iThrID;
+	pthread_cancel(ptThr->m_tHnd);
+
+	return 0;
 }
 
 
@@ -870,9 +800,10 @@ int StopForceThreadInPool(int _iThrPoolID, int _iThrID)
 * Name: 	GetTskSelfIDThreadInPool
 * Descriptions:此函数有点多余但兼容通用
 * Parameter:	
-* Return:	-1不存在 0+存在
+* Return:	-1不存在 ，0+存在
 * **********************************************************************/
-int GetTskSelfIDThreadInPool(int _iThrPoolID)
+GH_DEF(int)
+GetTskSelfIDThreadInPool(int _iThrPoolID)
 {
 	T_ThreadPoolEntity *ptThrPool = (T_ThreadPoolEntity *)get_table_item(LH_THREAD_TTPYE_POOL, _iThrPoolID);
 	int iRet = -1, i;
@@ -891,7 +822,7 @@ int GetTskSelfIDThreadInPool(int _iThrPoolID)
 	}
 	else
 	{
-		printf("非法ID\r\n");
+		LOGOUT(LOG_ERROR, "unknown pool ID");
 	}	
 	
 	return iRet;
@@ -900,35 +831,31 @@ int GetTskSelfIDThreadInPool(int _iThrPoolID)
 * Name: 		
 * Descriptions:打印指定主池中的所有子线程
 * Parameter:		
-* Return:	
+* Return:		0：成功
+				GH_EGONE：对象不存在
 * **********************************************************************/
-int PrintInfoThreadInPool(int _iThrPoolID)
+GH_DEF(int)
+PrintInfoThreadInPool(int _iThrPoolID)
 {
 	T_ThreadPoolEntity *ptThrPool = (T_ThreadPoolEntity *)get_table_item(LH_THREAD_TTPYE_POOL, _iThrPoolID);
-	int iRet = -1, i;
-	if (ptThrPool)
-	{
-		printf("thread pool ID = [%d], name = [%s], thread number = [%d], thread active = [%d]\r\n", 
-		ptThrPool->m_iThrPoolId, ptThrPool->m_aucName, ptThrPool->m_iThrNum, ptThrPool->m_iActiveThrCnt);
-		
-		LH_Thread *ptThr = NULL;
-		ptThr = ptThrPool->pThrList;
-		for (i = 0; i < ptThrPool->m_iThrNum; i++, ptThr++)
-		{
-			if (ptThr->m_iRunFlg)
-			{
-				/* 需要的信息再加 */
-				printf("%d. task id = %d, task address = %x\r\n", i + 1, ptThr->m_iTaskID, ptThr->Task);
-			}
-		}	
-		iRet = 0;
-	}
-	else
-	{
-		printf("unknown pool ID\r\n");
-	}	
+	_ERROR_RETURN(ptThrPool, GH_EGONE);
+	int i;
+
+	printf("thread pool ID = [%d], name = [%s], thread number = [%d], thread active = [%d]\r\n", 
+	ptThrPool->m_iThrPoolId, ptThrPool->m_aucName, ptThrPool->m_iThrNum, ptThrPool->m_iActiveThrCnt);
 	
-	return iRet;	
+	LH_Thread *ptThr = NULL;
+	ptThr = ptThrPool->pThrList;
+	for (i = 0; i < ptThrPool->m_iThrNum; i++, ptThr++)
+	{
+		if (ptThr->m_iRunFlg)
+		{
+			/* 需要的信息再加 */
+			printf("%d. task id = %d, task address = %x\r\n", i + 1, ptThr->m_iTaskID, (unsigned int)(long)ptThr->Task);
+		}
+	}	
+
+	return 0;	
 }
 
 /************************************************************************
@@ -951,7 +878,7 @@ static int check_pool_available(int _iThrPoolID, int _iThrID, LH_Thread **_ptThr
 	}
 	else
 	{
-		printf("非法ID\r\n");
+		LOGOUT(LOG_ERROR, "unknown pool ID");
 	}		
 	return 0;
 }
@@ -962,11 +889,16 @@ static int check_pool_available(int _iThrPoolID, int _iThrID, LH_Thread **_ptThr
 *				1.int：主池ID
 *				2.int：子线程ID
 *				3.int：设置的事件
-* Return:     	
+* Return:     	0：成功
+*				GH_EINVAL：参数错误
+*				GH_EGONE：对象不存在
 * **********************************************************************/
-int ThreadTskSetEvent(int _iThrPoolID, int _iThrID, int _pSetEvent)
+GH_DEF(int)
+ThreadTskSetEvent(int _iThrPoolID, int _iThrID, int _pSetEvent)
 {
-	int iRet = -1;
+	_ERROR_RETURN(_iThrPoolID >= 0 && _iThrID >= 0, GH_EINVAL);
+	
+	int iRet = GH_EGONE;
 	LH_Thread *ptThr = NULL;
 
 	if (!check_pool_available(_iThrPoolID, _iThrID, &ptThr))
@@ -975,6 +907,7 @@ int ThreadTskSetEvent(int _iThrPoolID, int _iThrID, int _pSetEvent)
 		{
 			LockTPLock(ptThr->m_tMux);
 			ptThr->m_iEvent |= _pSetEvent;
+			LOGOUT(LOG_INFO, "pool id[%d] thread id[%d] set event = [0x%04x]|[0x%04x]", _iThrPoolID, _iThrID, _pSetEvent, ptThr->m_iEvent);
 			SignalTPCond(ptThr->m_tCond);
 			UnLockTPLock(ptThr->m_tMux);
 			iRet = 0;
@@ -983,10 +916,22 @@ int ThreadTskSetEvent(int _iThrPoolID, int _iThrID, int _pSetEvent)
 			
 	return iRet;
 }
-
-int ThreadTskCleanEvent(int _iThrPoolID, int _iThrID, int _pCleanEvent)
+/************************************************************************
+* Name: 		
+* Descriptions:	
+* Parameter:		
+*				1.int：主池ID
+*				2.int：子线程ID
+*				3.int：要清除的事件
+* Return:     	0：成功
+*				GH_EINVAL：参数错误
+*				GH_EGONE：对象不存在
+* **********************************************************************/
+GH_DEF(int)
+ThreadTskCleanEvent(int _iThrPoolID, int _iThrID, int _pCleanEvent)
 {
-	int iRet = -1;
+	_ERROR_RETURN(_iThrPoolID >= 0 && _iThrID >= 0, GH_EINVAL);
+	int iRet = GH_EGONE;
 	LH_Thread *ptThr = NULL;
 	if (!check_pool_available(_iThrPoolID, _iThrID, &ptThr))
 	{
@@ -994,6 +939,7 @@ int ThreadTskCleanEvent(int _iThrPoolID, int _iThrID, int _pCleanEvent)
 		{
 			LockTPLock(ptThr->m_tMux);
 			ptThr->m_iEvent &= ~_pCleanEvent;
+			LOGOUT(LOG_INFO, "pool id[%d] thread id[%d] clean event = [0x%04x]|[0x%04x]", _iThrPoolID, _iThrID, _pCleanEvent, ptThr->m_iEvent);
 			SignalTPCond(ptThr->m_tCond);
 			UnLockTPLock(ptThr->m_tMux);
 			iRet = 0;
@@ -1001,11 +947,23 @@ int ThreadTskCleanEvent(int _iThrPoolID, int _iThrID, int _pCleanEvent)
 	}		
 	return iRet;	
 }
-
-/* LH_THREAD_EVENT_FLAG_NOWAIT：非阻塞 */
-int ThreadTskWaitForEvent(int _iThrPoolID, int _iThrID, int *_pOut_evt, int _pCflag)
+/************************************************************************
+* Name: 		
+* Descriptions:	
+* Parameter:		
+*				1.int：主池ID
+*				2.int：子线程ID
+*				3.int *：获得的事件
+*				4.int：阻塞标志
+* Return:     	0：成功
+*				GH_EINVAL：参数错误
+*				GH_EGONE：对象不存在
+* **********************************************************************/
+GH_DEF(int)
+ThreadTskWaitForEvent(int _iThrPoolID, int _iThrID, int *_pOut_evt, int _pCflag)
 {
-	int iRet = -1;
+	_ERROR_RETURN(_iThrPoolID >= 0 && _iThrID >= 0, GH_EINVAL);
+	int iRet = GH_EGONE;
 	LH_Thread *ptThr = NULL;
 	
 	if (!check_pool_available(_iThrPoolID, _iThrID, &ptThr))
@@ -1042,7 +1000,7 @@ int ThreadTskWaitForEvent(int _iThrPoolID, int _iThrID, int *_pOut_evt, int _pCf
 			
 			/* 有事件跳出,取出事件 */
 			*_pOut_evt = ptThr->m_iEvent;
-			//THR_LOGE("gett : ptThr->m_iEvent = %#010x, _pOut_evt = %#010x",ptThr->m_iEvent, *_pOut_evt);  
+			LOGOUT(LOG_INFO, "pool id[%d] thread id[%d] gett event = [0x%04x]", _iThrPoolID, _iThrID, ptThr->m_iEvent);
 			ptThr->m_iEvent = 0;
 			iRet = 0;		
 
@@ -1058,11 +1016,15 @@ EXIT:
 * Name:
 * Descriptions:
 * Parameter:		_pQEvent: 队列事件
-* Return:     	
+* Return:     	0：成功
+*				GH_EINVAL：参数错误
+*				GH_EGONE：对象不存在
 * **********************************************************************/
-int ThreadTskPostToQueue(int _iThrPoolID, int _iThrID, int _pQEvent, const char *_pData, int _iLen)
+GH_DEF(int)
+ThreadTskPostToQueue(int _iThrPoolID, int _iThrID, int _pQEvent, const char *_pData, int _iLen)
 {
-	int iRet = -1;
+	_ERROR_RETURN(_iThrPoolID >= 0 && _iThrID >= 0, GH_EINVAL);
+	int iRet = GH_EGONE;
 	LH_Thread *ptThr = NULL;
 	if (!check_pool_available(_iThrPoolID, _iThrID, &ptThr))
 	{
@@ -1106,11 +1068,15 @@ EXIT:
 *				4.char*:数据存放的buf
 *				5.int：想要读取的字节数
 *				6.int *：实际读取的字节数
-* Return:     	-1：队列空，0：队列有数据
+* Return:     	0：成功
+*				GH_EINVAL：参数错误
+*				GH_EGONE：对象不存在
 * **********************************************************************/
-int ThreadTskGetMsgFromQueue(int _iThrPoolID, int _iThrID, int *_pQEvent, char *_pData, int _iLen, int *_iReadLen)
+GH_DEF(int)
+ThreadTskGetMsgFromQueue(int _iThrPoolID, int _iThrID, int *_pQEvent, char *_pData, int _iLen, int *_iReadLen)
 {
-	int iRet = -1;
+	_ERROR_RETURN(_iThrPoolID >= 0 && _iThrID >= 0, GH_EINVAL);
+	int iRet = GH_EGONE;
 	LH_Thread *ptThr = NULL;
 
 	if (!check_pool_available(_iThrPoolID, _iThrID, &ptThr))
@@ -1122,7 +1088,7 @@ int ThreadTskGetMsgFromQueue(int _iThrPoolID, int _iThrID, int *_pQEvent, char *
 			T_ThreadQueueMsg *pMsg = NULL;
 			if (pMsg = TAILQ_FIRST(&ptThr->m_tQueue))
 			{
-				printf("get queue msg task id = %d, event = %d, len = %d\n", pMsg->m_iTskId, pMsg->m_iQEvent, pMsg->m_iLen); 
+				LOGOUT(LOG_INFO, "get queue msg task id = %d, event = %d, len = %d", pMsg->m_iTskId, pMsg->m_iQEvent, pMsg->m_iLen); 
 				TAILQ_REMOVE(&ptThr->m_tQueue, pMsg, _qThrEntry);
 				if (pMsg->m_iTskId == _iThrID)
 				{
@@ -1150,9 +1116,11 @@ int ThreadTskGetMsgFromQueue(int _iThrPoolID, int _iThrID, int *_pQEvent, char *
 	return iRet;
 }
 /* 返回当前队列有多少消息 ,是否打印消息*/
-int ThreadTskCheckMsgQueueInfo(int _iThrPoolID, int _iThrID, unsigned char _fIsPrint)
+GH_DEF(int)
+ThreadTskCheckMsgQueueInfo(int _iThrPoolID, int _iThrID, unsigned char _fIsPrint, int *_iNumMsg)
 {
-	int iRet = -1,i = 0;
+	_ERROR_RETURN(_iThrPoolID >= 0 && _iThrID >= 0, GH_EINVAL);
+	int iRet = GH_EGONE,i = 0;
 	LH_Thread *ptThr = NULL;
 
 	if (!check_pool_available(_iThrPoolID, _iThrID, &ptThr))
@@ -1171,7 +1139,8 @@ int ThreadTskCheckMsgQueueInfo(int _iThrPoolID, int _iThrID, unsigned char _fIsP
 					printf(" %d.dst task id = %d, event = %d, len = %d\n", i,pMsg->m_iTskId, pMsg->m_iQEvent, pMsg->m_iLen); 
 				}
 			}
-			iRet = i;
+			iRet = 0;
+			*_iNumMsg = i;
 			UnLockTPLock(ptThr->m_tMux);
 		}
 	}
@@ -1185,7 +1154,8 @@ int ThreadTskCheckMsgQueueInfo(int _iThrPoolID, int _iThrID, unsigned char _fIsP
 * Parameter:		
 * Return:     	
 * **********************************************************************/
-int LH_SStartThread(const char *_pName, void *(_Task)(void *), void *_pArg)
+GH_DEF(int)
+SStartThread(const char *_pName, void *(_Task)(void *), void *_pArg)
 {
 	int iRet;
 	TPId tTid;
@@ -1197,7 +1167,7 @@ int LH_SStartThread(const char *_pName, void *(_Task)(void *), void *_pArg)
 	if(0 != iRet) 
 	{
 		iRet = pthread_attr_destroy(&iThrAttr);
-		printf ("pthread_attr_setstacksize error\r\n");
+		LOGOUT(LOG_ERROR, "pthread_attr_setstacksize error");
 		return -1;
 	}
 
@@ -1205,12 +1175,12 @@ int LH_SStartThread(const char *_pName, void *(_Task)(void *), void *_pArg)
 	if(0 != iRet) 
 	{
 		iRet = pthread_attr_destroy(&iThrAttr);
-		printf("pthread_create error\r\n");
+		LOGOUT(LOG_ERROR, "pthread_create error");
 		return -1;
 	}
 	pthread_attr_destroy(&iThrAttr);
 	pthread_detach(tTid);	
-	printf("thread id %lx, thread name %s \r\n", tTid, _pName);
+	LOGOUT(LOG_TRACE, "thread id %lx, thread name %s", tTid, _pName);
 	return tTid;
 }
 

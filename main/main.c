@@ -18,11 +18,7 @@ void CALLBACK(int _id, void *buffer)
 }
 
 ///////////////////////////////////////////////////////////////////////
-#define SIMPLE_TEST
-
-
-
-
+//#define SIMPLE_TEST
 ///////////////////////////////////////////////////////////////////////
 //#define CREATE_POOL_TEST 
 ///////////////////////////////////////////////////////////////////////
@@ -38,7 +34,7 @@ void test(void *_pArg)
 	
 }
 ///////////////////////////////////////////////////////////////////////
-//#define EVENT_TEST	//基础事件测试
+#define EVENT_TEST	//基础事件测试
 
 void test0(void *_pArg)
 {
@@ -169,8 +165,8 @@ int main(void)
 *	验证：	
 *	
 ************************************************************************/
-	LH_SStartThread("simple test", test, "1");
-	LH_SStartThread("simple test", test, "2");
+	SStartThread("simple test", test, "1");
+	SStartThread("simple test", test, "2");
 	printf("+++++++++++++++ SIMPLE_TEST finish +++++++++++++++\r\n");
 #endif	
 	
@@ -187,7 +183,7 @@ int main(void)
 	printf("A. \r\n");
 	for(i=0;i<10;i++)
 	{
-		aid[i] = InitThreadPool("pool test", 5, CALLBACK);
+		InitThreadPool("pool test", 5, CALLBACK, &aid[i]);
 		printf("aid[%d] = %d \r\n",i,aid[i]);
 	}
 	
@@ -206,7 +202,7 @@ int main(void)
 	printf("B. cread rand = %d \r\n",rol);
 	UnInitThreadPool(aid[rol]);
 	
-	aid[rol] = InitThreadPool("pool test", 5, CALLBACK);
+	InitThreadPool("pool test", 5, CALLBACK, &aid[rol]);
 	printf("aid[%d] = %d \r\n",rol,aid[i]);
 	PrintInfoThreadPool();
 
@@ -225,11 +221,11 @@ int main(void)
 *			2.回掉是否都有调用
 ************************************************************************/
 
-	mid = InitThreadPool("create test", 6, CALLBACK);
+	InitThreadPool("create test", 6, CALLBACK, &mid);
 
 	for(i=0;i<5;i++)
 	{
-		sid[i] = StartThreadInPool(mid, test, "fuck", qclean);
+		StartThreadInPool(mid, test, "fuck", qclean, &sid[i]);
 		printf("sid = [%d]\r\n",sid[i]);
 	}
 	PrintInfoThreadInPool(mid);
@@ -248,15 +244,15 @@ int main(void)
 *	功能：创建1个主池，3个子线程互发事件
 *	验证：	1.子线程之间的事件是否能正确接收
 ************************************************************************/
-	mid = InitThreadPool("event test", 6, CALLBACK);	
+	InitThreadPool("event test", 6, CALLBACK, &mid);	
 
-	sid[0] = StartThreadInPool(mid, test0, "fuck0", NULL);
+	StartThreadInPool(mid, test0, "fuck0", NULL, &sid[0]);
 	printf("sid = [%d]\r\n",sid[0]);
 
-	sid[1] = StartThreadInPool(mid, test1, "fuck1", NULL);
+	StartThreadInPool(mid, test1, "fuck1", NULL, &sid[1]);
 	printf("sid = [%d]\r\n",sid[1]);
 
-	sid[2] = StartThreadInPool(mid, test2, "fuck2", NULL);
+	StartThreadInPool(mid, test2, "fuck2", NULL, &sid[2]);
 	printf("sid = [%d]\r\n",sid[2]);	
 
 	for (i=0;i<10;i++)
@@ -277,15 +273,15 @@ int main(void)
 *	验证：	1.子线程之间的消息是否能正确接收
 *	注意事项：消息附属于事件里面，会占用一个事件LH_THREAD_TTPYE_EVT_QUEUE
 ************************************************************************/
-	mid = InitThreadPool("queue test", 3, NULL);
+	InitThreadPool("queue test", 3, NULL, &mid);
 
-	sid[0] = StartThreadInPool(mid, qtest0, "fuck0", qclean);
+	StartThreadInPool(mid, qtest0, "fuck0", qclean, &sid[0]);
 	printf("sid = [%d]\r\n",sid[0]);
 
-	sid[1] = StartThreadInPool(mid, qtest1, "fuck1", NULL);
+	StartThreadInPool(mid, qtest1, "fuck1", NULL, &sid[1]);
 	printf("sid = [%d]\r\n",sid[1]);
 
-	sid[2] = StartThreadInPool(mid, qtest2, "fuck2", NULL);
+	StartThreadInPool(mid, qtest2, "fuck2", NULL, &sid[2]);
 	printf("sid = [%d]\r\n",sid[2]);
 
 	ThreadTskPostToQueue(mid, sid[0], 18, "queue msg1", 10);

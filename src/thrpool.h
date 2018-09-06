@@ -7,6 +7,8 @@
 #ifndef _THR_POOL_H_
 #define _THR_POOL_H_
 
+#include "common.h" 
+
 
 /************************************************************************
 * 			Macro Definition
@@ -16,7 +18,7 @@
 
 
 /*********** 简易模式 *******************************************/
-extern int LH_SStartThread(const char *_pName, void *(_Task)(void *), void *_pArg);
+extern int SStartThread(const char *_pName, void *(_Task)(void *), void *_pArg);
 
 
 /*********** 功能模式 *******************************************/
@@ -31,26 +33,26 @@ typedef enum
 }LH_THREAD_TTYPE_EVENT;	//线程事件类型，区别队列事件
 
 
-extern int LH_ThrLibraryEnable(void);
-extern int LH_ThrLibraryDisable(void);
+GH_DECL(int) LH_ThrLibraryEnable(void);
+GH_DECL(int) LH_ThrLibraryDisable(void);
 
-extern int InitThreadPool(const char *_pName, unsigned char _ucThrNum, void (*_pHandle)(int, void *));
-extern void UnInitThreadPool(int _iThrPoolID);
-extern void PrintInfoThreadPool(void);
+GH_DECL(int) InitThreadPool(const char *, unsigned char , void (*_pHandle)(int, void *), int *);
+GH_DECL(int) UnInitThreadPool(int );
+GH_DECL(int) PrintInfoThreadPool(void);
 
 
-extern int StartThreadInPool(int _iThrPoolID, void *(*_Task)(void *), void *_pArg, void *_pUserClean(void *));
-extern int StopForceThreadInPool(int _iThrPoolID, int _iThrID);
-extern int GetTskSelfIDThreadInPool(int _iThrPoolID);
-extern int PrintInfoThreadInPool(int _iThrPoolID);
+GH_DECL(int) StartThreadInPool(int , void *(*_Task)(void *), void *, void *_pUserClean(void *), int *);
+GH_DECL(int) StopForceThreadInPool(int , int );
+GH_DECL(int) GetTskSelfIDThreadInPool(int );
+GH_DECL(int) PrintInfoThreadInPool(int );
 
-extern int ThreadTskSetEvent(int _iThrPoolID, int _iThrID, int _pSetEvent);
-extern int ThreadTskCleanEvent(int _iThrPoolID, int _iThrID, int _pCleanEvent);
-extern int ThreadTskWaitForEvent(int _iThrPoolID, int _iThrID, int *_pOut_evt, int _pCflag);
+GH_DECL(int) ThreadTskSetEvent(int , int , int );
+GH_DECL(int) ThreadTskCleanEvent(int , int , int );
+GH_DECL(int) ThreadTskWaitForEvent(int , int , int *, int );
 
-extern int ThreadTskPostToQueue(int _iThrPoolID, int _iThrID, int _pQEvent, const char *_pData, int _iLen);
-extern int ThreadTskGetMsgFromQueue(int _iThrPoolID, int _iThrID, int *_pQEvent, char *_pData, int _iLen, int *_iReadLen);
-extern int ThreadTskCheckMsgQueueInfo(int _iThrPoolID, int _iThrID, unsigned char _fIsPrint);
+GH_DECL(int) ThreadTskPostToQueue(int , int , int , const char *, int );
+GH_DECL(int) ThreadTskGetMsgFromQueue(int , int , int *, char *, int , int *);
+GH_DECL(int) ThreadTskCheckMsgQueueInfo(int , int , unsigned char , int *);
 
 
 
